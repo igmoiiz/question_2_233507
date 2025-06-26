@@ -1,4 +1,4 @@
-// ignore_for_file: use_build_context_synchronously
+// ignore_for_file: use_build_context_synchronously, deprecated_member_use, unnecessary_to_list_in_spreads
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -74,6 +74,7 @@ class _ExpenseHomeState extends State<ExpenseHome>
         children: [
           _dashboard(context, controller),
           _expenseList(context, controller),
+          _analyticsPage(context, controller),
         ],
       ),
       bottomNavigationBar: Container(
@@ -96,15 +97,18 @@ class _ExpenseHomeState extends State<ExpenseHome>
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
             selectedIndex: _selectedIndex,
             onTabChange: (i) {
-              _pageController.animateToPage(
-                i,
-                duration: const Duration(milliseconds: 400),
-                curve: Curves.easeInOut,
-              );
+              if (_selectedIndex != i) {
+                _pageController.animateToPage(
+                  i,
+                  duration: const Duration(milliseconds: 400),
+                  curve: Curves.easeInOut,
+                );
+              }
             },
             tabs: const [
               GButton(icon: Icons.dashboard, text: 'Dashboard'),
               GButton(icon: Icons.list, text: 'Expenses'),
+              GButton(icon: Icons.analytics, text: 'Analytics'),
             ],
           ),
         ),
@@ -211,7 +215,6 @@ class _ExpenseHomeState extends State<ExpenseHome>
     int i = 0;
     return PieChart(
       PieChartData(
-        sectionsSpace: 2,
         centerSpaceRadius: 40,
         sections:
             data.entries.map((e) {
@@ -237,8 +240,6 @@ class _ExpenseHomeState extends State<ExpenseHome>
               );
             }).toList(),
       ),
-      swapAnimationDuration: const Duration(milliseconds: 800),
-      swapAnimationCurve: Curves.easeInOutCubic,
     );
   }
 
@@ -368,7 +369,7 @@ class _ExpenseHomeState extends State<ExpenseHome>
     final formKey = GlobalKey<FormState>();
     final titleController = TextEditingController(text: expense?.title ?? '');
     final amountController = TextEditingController(
-      text: expense?.amount?.toString() ?? '',
+      text: expense?.amount.toString() ?? '',
     );
     String category = expense?.category ?? _categories.first;
     DateTime date = expense?.date ?? DateTime.now();
@@ -802,6 +803,500 @@ class _ExpenseHomeState extends State<ExpenseHome>
           child: child,
         );
       },
+    );
+  }
+
+  Widget _analyticsPage(BuildContext context, ExpenseController controller) {
+    final expenses = controller.expenses;
+    if (expenses.isEmpty) {
+      return const Center(child: Text('No data to analyze'));
+    }
+    final theme = Theme.of(context);
+    final cardColor = theme.cardColor;
+    final textColor = theme.colorScheme.onSurface;
+    final gridColor = Colors.white10;
+    final borderColor = Colors.white24;
+    // Pie chart data
+    final Map<String, double> categoryTotals = {};
+    for (var e in expenses) {
+      categoryTotals[e.category] = (categoryTotals[e.category] ?? 0) + e.amount;
+    }
+    final List<Color> pieColors = [
+      theme.colorScheme.primary,
+      theme.colorScheme.secondary,
+      const Color(0xFF0984E3),
+      const Color(0xFF6C5CE7),
+      const Color(0xFFFD79A8),
+      const Color(0xFFFF7675),
+    ];
+    // Line chart data (expenses over time)
+    final sorted = [...expenses]..sort((a, b) => a.date.compareTo(b.date));
+    final Map<String, double> dateTotals = {};
+    for (var e in sorted) {
+      final key = DateFormat('MM/dd').format(e.date);
+      dateTotals[key] = (dateTotals[key] ?? 0) + e.amount;
+    }
+    final lineSpots =
+        dateTotals.entries.toList().asMap().entries.map((entry) {
+          return FlSpot(entry.key.toDouble(), entry.value.value);
+        }).toList();
+    final lineLabels = dateTotals.keys.toList();
+    // Bar chart data (category totals)
+    final barGroups =
+        categoryTotals.entries.toList().asMap().entries.map((entry) {
+          final idx = entry.key;
+          final value = entry.value.value;
+          return BarChartGroupData(
+            x: idx,
+            barRods: [
+              BarChartRodData(
+                toY: value,
+                gradient: LinearGradient(
+                  colors: [
+                    pieColors[idx % pieColors.length],
+                    pieColors[(idx + 1) % pieColors.length],
+                  ],
+                ),
+                width: 22,
+                borderRadius: BorderRadius.circular(8),
+                backDrawRodData: BackgroundBarChartRodData(
+                  show: true,
+                  toY: 0,
+                  color: cardColor.withOpacity(0.7),
+                ),
+                rodStackItems: [],
+              ),
+            ],
+            showingTooltipIndicators: [0],
+          );
+        }).toList();
+    final barLabels = categoryTotals.keys.toList();
+    // Analytics summary
+    final total = expenses.fold(0.0, (sum, e) => sum + e.amount);
+    final highest = expenses.reduce((a, b) => a.amount > b.amount ? a : b);
+    final lowest = expenses.reduce((a, b) => a.amount < b.amount ? a : b);
+    final avg = total / expenses.length;
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Card(
+          elevation: 12,
+          color: cardColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.pie_chart, color: theme.colorScheme.primary),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Expense Distribution',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                        color: textColor,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 220,
+                  child: PieChart(
+                    PieChartData(
+                      centerSpaceRadius: 40,
+                      sections:
+                          categoryTotals.entries.map((e) {
+                            final idx = categoryTotals.keys.toList().indexOf(
+                              e.key,
+                            );
+                            final color = pieColors[idx % pieColors.length];
+                            final value = e.value;
+                            final percent =
+                                categoryTotals.values.fold(
+                                          0.0,
+                                          (a, b) => a + b,
+                                        ) ==
+                                        0
+                                    ? 0
+                                    : (value /
+                                            categoryTotals.values.fold(
+                                              0.0,
+                                              (a, b) => a + b,
+                                            )) *
+                                        100;
+                            return PieChartSectionData(
+                              color: color,
+                              value: value,
+                              title:
+                                  percent < 8
+                                      ? ''
+                                      : '${percent.toStringAsFixed(1)}%',
+                              radius: 60,
+                              titleStyle: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: textColor,
+                              ),
+                            );
+                          }).toList(),
+                      borderData: FlBorderData(show: false),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _buildPieLegend(categoryTotals, pieColors),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
+        Card(
+          elevation: 12,
+          color: cardColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.show_chart, color: const Color(0xFF0984E3)),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Expenses Over Time',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                        color: textColor,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 220,
+                  child: LineChart(
+                    LineChartData(
+                      backgroundColor: cardColor,
+                      lineBarsData: [
+                        LineChartBarData(
+                          spots: lineSpots,
+                          isCurved: true,
+                          gradient: LinearGradient(
+                            colors: [
+                              theme.colorScheme.primary,
+                              theme.colorScheme.secondary,
+                            ],
+                          ),
+                          barWidth: 4,
+                          belowBarData: BarAreaData(
+                            show: true,
+                            gradient: LinearGradient(
+                              colors: [
+                                theme.colorScheme.primary.withOpacity(0.2),
+                                Colors.transparent,
+                              ],
+                            ),
+                          ),
+                          dotData: FlDotData(show: true),
+                        ),
+                      ],
+                      titlesData: FlTitlesData(
+                        leftTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 40,
+                            getTitlesWidget: (value, meta) {
+                              return Text(
+                                'Rs. ${value.toInt()}',
+                                style: TextStyle(
+                                  color: textColor.withOpacity(0.7),
+                                  fontSize: 10,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 32,
+                            getTitlesWidget: (value, meta) {
+                              final idx = value.toInt();
+                              if (idx >= 0 && idx < lineLabels.length) {
+                                return Padding(
+                                  padding: const EdgeInsets.only(top: 4.0),
+                                  child: Text(
+                                    lineLabels[idx],
+                                    style: TextStyle(
+                                      color: textColor.withOpacity(0.7),
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                );
+                              }
+                              return const SizedBox.shrink();
+                            },
+                          ),
+                        ),
+                        rightTitles: AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        topTitles: AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                      ),
+                      gridData: FlGridData(
+                        show: true,
+                        drawVerticalLine: false,
+                        horizontalInterval: 1,
+                        getDrawingHorizontalLine:
+                            (value) => FlLine(color: gridColor, strokeWidth: 1),
+                      ),
+                      borderData: FlBorderData(
+                        show: true,
+                        border: Border.all(color: borderColor),
+                      ),
+                      lineTouchData: LineTouchData(
+                        touchTooltipData: LineTouchTooltipData(
+                          tooltipBgColor: cardColor,
+                          getTooltipItems:
+                              (touchedSpots) =>
+                                  touchedSpots.map((spot) {
+                                    return LineTooltipItem(
+                                      'Rs. ${spot.y.toStringAsFixed(2)}',
+                                      TextStyle(
+                                        color: theme.colorScheme.primary,
+                                      ),
+                                    );
+                                  }).toList(),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
+        Card(
+          elevation: 12,
+          color: cardColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.bar_chart, color: const Color(0xFF6C5CE7)),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Category Totals',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                        color: textColor,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 220,
+                  child: BarChart(
+                    BarChartData(
+                      backgroundColor: cardColor,
+                      barGroups: barGroups,
+                      titlesData: FlTitlesData(
+                        leftTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 40,
+                            getTitlesWidget: (value, meta) {
+                              return Text(
+                                'Rs. ${value.toInt()}',
+                                style: TextStyle(
+                                  color: textColor.withOpacity(0.7),
+                                  fontSize: 10,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 32,
+                            getTitlesWidget: (value, meta) {
+                              final idx = value.toInt();
+                              if (idx >= 0 && idx < barLabels.length) {
+                                return Padding(
+                                  padding: const EdgeInsets.only(top: 4.0),
+                                  child: Text(
+                                    barLabels[idx],
+                                    style: TextStyle(
+                                      color: textColor.withOpacity(0.7),
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                );
+                              }
+                              return const SizedBox.shrink();
+                            },
+                          ),
+                        ),
+                        rightTitles: AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        topTitles: AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                      ),
+                      gridData: FlGridData(
+                        show: true,
+                        drawVerticalLine: false,
+                        horizontalInterval: 1,
+                        getDrawingHorizontalLine:
+                            (value) => FlLine(color: gridColor, strokeWidth: 1),
+                      ),
+                      borderData: FlBorderData(
+                        show: true,
+                        border: Border.all(color: borderColor),
+                      ),
+                      barTouchData: BarTouchData(
+                        enabled: true,
+                        touchTooltipData: BarTouchTooltipData(
+                          tooltipBgColor: cardColor,
+                          getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                            return BarTooltipItem(
+                              'Rs. ${rod.toY.toStringAsFixed(2)}',
+                              TextStyle(color: theme.colorScheme.primary),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
+        Card(
+          elevation: 12,
+          color: cardColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.insights, color: theme.colorScheme.secondary),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Analytics Summary',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                        color: textColor,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(Icons.savings, color: theme.colorScheme.primary),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Total Expenses: Rs. ${total.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
+                        color: textColor,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    const Icon(Icons.trending_up, color: Color(0xFF0984E3)),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Average Expense: Rs. ${avg.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
+                        color: textColor,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    const Icon(Icons.arrow_upward, color: Colors.redAccent),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Highest: ${highest.title} (Rs. ${highest.amount.toStringAsFixed(2)})',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
+                        color: textColor,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    const Icon(Icons.arrow_downward, color: Colors.greenAccent),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Lowest: ${lowest.title} (Rs. ${lowest.amount.toStringAsFixed(2)})',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
+                        color: textColor,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    const Icon(Icons.receipt_long, color: Color(0xFF6C5CE7)),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Transactions: ${expenses.length}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
+                        color: textColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
